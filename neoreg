@@ -1,0 +1,181 @@
+#!/usr/bin/env Rscript
+
+arg = commandArgs(trailingOnly = TRUE)
+##################################
+###### GET OPT & DATA MORPH ######
+##################################
+
+if(length(arg) < 3){
+	stop("Args:\n\n--------------------------------------------------------------------\n\nprgm   <duplfile_to_make_regression.csv> <Estimated error rate of the fastq> <optional : number of point of the regression> <outputFolder>\n\n--------------------------------------------------------------------\n\n");
+}
+
+duplFile = arg[1];
+errorRate = as.numeric(arg[2]);
+
+if(length(arg) == 4){
+	nbPoint = arg[3];
+	VERIF = 1;
+	
+}else{
+	nbPoint = -1;
+	VERIF = 0;
+}
+path = arg[length(arg)];
+
+##################################
+
+if(errorRate>1){errorRate=1}
+if(errorRate<0){errorRate=0}
+nbx = 3;
+POSTSCRIPT_OUTPUT = FALSE;
+data = read.table(duplFile,header=T,check.names=F)[c(2,5)];
+nbPoint=as.integer(nbPoint);
+if(nbPoint<0 || nbPoint>=length(data[,1])){VERIF = 0}
+scol = 2;
+ucol = 1;
+
+nbread=max(data[,scol])
+xmax=nbx*nbread
+dupl= as.numeric(data[which(data[,scol]==nbread),ucol]);
+data[,ucol] = as.integer((100-data[,ucol])*data[,scol]/100);
+
+if(VERIF==1){
+	sdata = data[data[,scol]>=data[order(data[,scol])[as.numeric(nbPoint)],scol],]
+	data = data[data[,scol]<=data[order(data[,scol])[nbPoint],scol],]
+	print(sdata);
+}
+
+x = data[,scol];
+
+dir.create(path,recursive=T);
+outfile=paste(path,"/summary.csv",sep="")
+
+####################
+######  FUNC  ######
+####################
+
+
+ufunk = function(x,a,b,c){
+	return( (((a+(b*x))*x)/(c+x)) );
+}
+
+
+################
+##### MAIN #####
+################
+
+cat("### Nonlinear regression model ###","\n y ~ (((a + (b * x)) * x)/(c + x))","\n",file=outfile, append = FALSE)
+cat("\n",file=outfile, append = TRUE)
+
+p=50;
+### Estimate "a" with hypothesis a=c ###
+start=nbread*((100*(1-errorRate)-dupl)/dupl);
+step=start/p;
+y=data[,ucol];
+fit = c();
+n=1;
+astart=start;
+print(paste("Iteration",n,"try start parameters a:",astart,", b:",errorRate,", c:",astart))
+fit=try( nls(y ~ (((a+(b*x))*x)/(c+x)), start= list(a=astart, b=errorRate, c=astart), lower= list(a=0,b=errorRate,c=0), upper= list(a=Inf,b=errorRate,c=Inf), algorithm="port",trace="TRUE"));
+n=n+1;	
+while (n<=p && attr(fit,"class") != "nls"){ 
+	astart=start-((n-1)*step);
+	#cmax=astart*0.1;
+	print(paste("Iteration",n,"try start parameters a:",astart,", b:",errorRate,", c:",cstart))
+	fit=try( nls(y ~ (((a+(b*x))*x)/(c+x)), start= list(a=astart, b=errorRate, c=astart), lower= list(a=0,b=errorRate,c=0), upper= list(a=Inf,b=errorRate,c=Inf), algorithm="port",trace="TRUE"));
+	if(attr(fit,"class") != "nls"){
+		astart=start+((n-1)*step);
+		#cmax=astart*0.1;
+		print(paste("Iteration",n,"try start parameters a:",astart,", b:",errorRate,", c:",cstart))
+		fit=try( nls(y ~ (((a+(b*x))*x)/(c+x)), start= list(a=astart, b=errorRate, c=astart), lower= list(a=0,b=errorRate,c=0), upper= list(a=Inf,b=errorRate,c=Inf), algorithm="port",trace="TRUE"));
+	}	
+	n=n+1;
+} 
+	
+if(attr(fit,"class") != "nls"){
+	b = 1;
+	a = 0;
+	c = 1;
+}else{
+	c = coef(fit)[3];
+	b = coef(fit)[2];
+	a = coef(fit)[1];
+}
+
+cat("### Best parameters of the model ###","\n a -->",a,"\n b -->",b,"\n c -->",c,"\n",file=outfile, append = TRUE)
+cat("\n",file=outfile, append = TRUE)
+cat("### Estimation of library size ###\n",a,"unique fragments\n",file=outfile, append = TRUE,sep=" ")
+cat("\n",file=outfile, append = TRUE)
+
+
+print(fit);
+
+if(POSTSCRIPT_OUTPUT){
+	postscript(paste(path,"/saturation_80.ps",sep=""));
+}else{
+	jpeg(paste(path,"/saturation_80.jpg",sep=""),width=600,height=450);
+}
+
+
+### Plot 80% of library size ###
+maxReads=(80/20)*(c+a);
+		
+curve(ufunk(x,a,b,c),lwd=2,col="chocolate",ylim=c(0,maxReads),xlim=c(0,maxReads),xlab="number of reads",ylab="number of unique reads",cex.lab=1.5,cex.axis=1.5);
+par(new=T);
+curve(ufunk(x,a,0,c),lwd=2,lty=3,col="chocolate",ylim=c(0,maxReads),xlim=c(0,maxReads),xlab="",ylab="",cex.lab=1.5,cex.axis=1.5,main="");
+par(new=T);
+plot(x=x,y=(data[,ucol]),col="chocolate",pch=20,lty=2,ylim=c(0,maxReads),xlim=c(0,maxReads),cex.lab=1.5,cex.axis=1.5,main="",xlab="",ylab="");
+par(new=T)
+
+if(VERIF==1){
+	plot(x=sdata[,scol],y=(sdata[,ucol]),col="chocolate",pch=1,lty=2,ylim=c(0,maxReads),xlim=c(0,maxReads),cex.lab=1.5,cex.axis=1.5,main="",xlab="",ylab="");
+}
+abline(h=a,lty=2,col="chocolate");
+abline(0,1,lty=2,col="grey");
+abline(h=0,col="grey");
+abline(v=0,col="grey");
+	
+dev.off();
+
+### Plot until xmax ###
+
+if(POSTSCRIPT_OUTPUT){
+	postscript(paste(path,"/saturation.ps",sep=""));
+}else{
+	jpeg(paste(path,"/saturation.jpg",sep=""),width=600,height=450);
+}
+		
+curve(ufunk(x,a,b,c),lwd=2,col="chocolate",ylim=c(0,xmax),xlim=c(0,xmax),xlab="number of reads",ylab="number of unique reads",cex.lab=1.5,cex.axis=1.5);
+par(new=T);
+curve(ufunk(x,a,0,c),lwd=2,lty=3,col="chocolate",ylim=c(0,xmax),xlim=c(0,xmax),xlab="",ylab="",cex.lab=1.5,cex.axis=1.5,main="");
+par(new=T);
+plot(x=x,y=(data[,ucol]),col="chocolate",pch=20,lty=2,ylim=c(0,xmax),xlim=c(0,xmax),cex.lab=1.5,cex.axis=1.5,main="",xlab="",ylab="");
+par(new=T)
+
+if(VERIF==1){
+	plot(x=sdata[,scol],y=(sdata[,ucol]),col="chocolate",pch=1,lty=2,ylim=c(0,xmax),xlim=c(0,xmax),cex.lab=1.5,cex.axis=1.5,main="",xlab="",ylab="");
+}
+abline(h=a,lty=2,col="chocolate");
+abline(0,1,lty=2,col="grey");
+abline(h=0,col="grey");
+abline(v=0,col="grey");
+	
+dev.off();
+
+
+
+### WRITE OUTPUT ###
+### Results for 95% of library size ###
+maxReads=(95/5)*(c+a);
+maxOpto=trunc(maxReads/max(x));
+opto = seq(2,maxOpto,1);
+newx = c(x,max(x)*c(opto));
+nUniq=ufunk(newx,a,b,c);
+nUniqError=ufunk(newx,a,0,c);
+output = cbind(c(x/max(x),opto),newx,round(nUniqError),round(nUniq),((newx-nUniq)/newx),(nUniq-ufunk(newx-10,a,b,c))/10);
+output = output[order(output[,1]),];
+colnames(output) = c("X","nReads","nUniqError","nUniq","%dupl","pbUniq");
+
+cat("### Complexity of sequenced fragments (X<1) and benefit of additionnal sequencing (X>1) until having 95% of the unique fragments of the library ###\n",file=outfile, append = TRUE,sep=" ");
+cat("### (pbUniq : probability of sequencing a new fragment after X sequencing) ###\n",file=outfile, append = TRUE,sep=" ");
+write.table(round(output,digits=3), outfile, append = TRUE, sep = "\t",quote=F,row.names=F,col.names=T);

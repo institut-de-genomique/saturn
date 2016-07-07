@@ -1,0 +1,203 @@
+#!/bin/bash
+
+################################################################################
+# *
+# * Copyright Jean-Marc Aury / Institut de Genomique / DSV / CEA ????
+# *                            <jmaury@genoscope.cns.fr>
+# *           Amin Madoui    / Institut de Genomique / DSV / CEA
+# *                            <amadoui@genoscope.cns.fr>
+# *           Stefan Engelen / Institut de Genomique / DSV / CEA
+# *                            <sengelen@genoscope.cns.fr>
+# *
+# * This software called Saturn is a program which allows a sequencing
+# * platform to estimate the saturation using an estimation of reads
+# * duplication, to predict the coverage from deeper sequencing and to 
+# * adjust the sequencing effort even without any reference genome. 
+# * 
+# * This software is governed by the CeCILL license under French law and
+# * abiding by the rules of distribution of free software.  You can  use,
+# * modify and/ or redistribute the software under the terms of the CeCILL
+# * license as circulated by CEA, CNRS and INRIA at the following URL
+# * "http://www.cecill.info".
+# *
+# * As a counterpart to the access to the source code and  rights to copy,
+# * modify and redistribute granted by the license, users are provided only
+# * with a limited warranty  and the software's author,  the holder of the
+# * economic rights,  and the successive licensors  have only  limited
+# * liability.
+# *
+# * In this respect, the user's attention is drawn to the risks associated
+# * with loading, using,  modifying and/or developing or reproducing the
+# * software by the user in light of its specific status of free software,
+# * that may mean  that it is complicated to manipulate,  and  that  also
+# * therefore means  that it is reserved for developers  and  experienced
+# * professionals having in-depth computer knowledge. Users are therefore
+# * encouraged to load and test the software's suitability as regards their
+# * requirements in conditions enabling the security of their systems and/or
+# * data to be ensured and,  more generally, to use and operate it in the
+# * same conditions as regards security.
+# *
+# * The fact that you are presently reading this means that you have had
+# * knowledge of the CeCILL license and that you accept its terms.
+################################################################################
+
+
+VERSION=v2.0
+
+set -o pipefail;
+
+usage(){
+    printf "Saturn ($VERSION): a fast software to predict the coverage from deeper sequencing\n"
+    printf "\t--fq1        : illumina reads (R1) in fastQ format\n"
+    printf "\t--fq2        : illumina reads (R2) in fastQ format (Optional)\n"
+    printf "\t--nparts     : number of parts to split file\n"
+    printf "\t--o        : Output directory, default is Saturn_date_pid\n"
+    printf "\t--nb_proc    : Number of parallel task, default is 16\n"
+    printf "\t--help           : help message\n\n"
+    exit 0
+}
+
+getdupl_P() {
+    R=$1
+    RATIO=$2
+    FILE_A=$3
+    FILE_B=$4
+    OUTPUT_DIR=$5
+    TRIMMING=$6
+    ESTIMATION_DUPL="fastx_estimate_duplicatedReads -c $TRIMMING -Q 33";
+    GETRANDOMSEQ='getRandomSeq' ;
+    
+    if [[ $R == 100 ]]
+    	then 
+		ln -s $FILE_A $OUTPUT_DIR/files/Dataset_${R}_1.fastq;
+		ln -s $FILE_B $OUTPUT_DIR/files/Dataset_${R}_2.fastq;
+    	else 
+		$GETRANDOMSEQ -fqp $FILE_A,$FILE_B -prc $R -o $OUTPUT_DIR/files/Dataset_${R};
+    fi
+    $GETRANDOMSEQ -fqp $OUTPUT_DIR/files/Dataset_${R}_1.fastq,$OUTPUT_DIR/files/Dataset_${R}_2.fastq -n 20000 -o $OUTPUT_DIR/files/Sample_${R};
+    $ESTIMATION_DUPL -i $OUTPUT_DIR/files/Dataset_${R}_1.fastq -j $OUTPUT_DIR/files/Dataset_${R}_2.fastq -s $OUTPUT_DIR/files/Sample_${R}_1.fastq -t $OUTPUT_DIR/files/Sample_${R}_2.fastq > $OUTPUT_DIR/data/duplicates_reads_${R}.stats; 
+}
+
+getdupl_S() {
+    R=$1
+    RATIO=$2
+    FILE_A=$3
+    OUTPUT_DIR=$4
+    TRIMMING=$5
+    ESTIMATION_DUPL="fastx_estimate_duplicatedReads -c $TRIMMING -Q 33";
+    GETRANDOMSEQ='getRandomSeq' ;
+    
+    if [[ $R == 100 ]]
+    	then ln -s $FILE_A $OUTPUT_DIR/files/Dataset_${R}.fastq;
+    	else $GETRANDOMSEQ -fq $FILE_A -prc $R -o $OUTPUT_DIR/files/Dataset_${R}.fastq;
+    fi
+    $GETRANDOMSEQ -fq $OUTPUT_DIR/files/Dataset_${R}.fastq -n 20000 -o $OUTPUT_DIR/files/Sample_${R}.fastq;
+    $ESTIMATION_DUPL -i $OUTPUT_DIR/files/Dataset_${R}.fastq -s $OUTPUT_DIR/files/Sample_${R}.fastq > $OUTPUT_DIR/data/duplicates_reads_${R}.stats; 
+}
+
+export -f getdupl_S
+export -f getdupl_P
+
+if [ $# -eq 0 ]
+then
+    usage
+fi
+
+EXTRACT="sat_extract"
+NEOREG="neoreg_v0.2"
+FILE_A=""
+FILE_B=""
+RATIO=10
+NB_PROC=16
+TRIM=25
+
+STAMP=$(date +%d%m%Y)
+OUTPUT_DIR=Saturn_${STAMP}_$$
+
+while :; do
+    case "$1" in
+        --help)
+            usage;
+            exit 0
+            ;;
+        --fq1)
+	    FILE_A=$2
+	    shift 2
+	    ;;
+	--fq2)
+	    FILE_B=$2
+	    shift 2
+	    ;;
+	--o)
+	    OUTPUT_DIR=$2
+	    shift 2
+	    ;;
+	--nparts)
+	    RATIO=$2
+	    shift 2
+	    ;;
+	--nb_proc)
+	    NB_PROC=$2
+	    shift 2
+	    ;; 
+        --) 
+	    shift; 
+	    break;;
+	-?*)
+	    printf 'WARN: Unknown option (ignored): %s\n' "$1" >&2;
+            usage;
+	    exit 1
+	    ;;
+	*)               # Default case: If no more options then break out of the loop.
+	    break
+    esac
+done
+ 
+d=`date`
+echo "[$d] Create output directory : "$OUTPUT_DIR
+mkdir -p $OUTPUT_DIR $OUTPUT_DIR/files $OUTPUT_DIR/data $OUTPUT_DIR/output
+
+ARR="" ; 
+for (( i=1; i<$RATIO; i++ )); 
+do 
+NEW=`echo "scale=10 ; 100 / $RATIO * $i " | bc -l`;
+ARR="$NEW $ARR";
+done;
+ARR="100 $ARR"
+
+d=`date`
+echo "[$d] Parallelization of jobs.";
+if [[ $FILE_B == "" ]]
+    then 
+    	echo "[$d] parallel -j $NB_PROC --no-notice \"getdupl_S {} $RATIO $FILE_A $OUTPUT_DIR $TRIM\" ::: $ARR";
+    	parallel -j $NB_PROC --no-notice "getdupl_S {} $RATIO $FILE_A $OUTPUT_DIR $TRIM" ::: $ARR
+    else 
+    	echo "[$d] parallel -j $NB_PROC --no-notice \"getdupl_P {} $RATIO $FILE_A $FILE_B $OUTPUT_DIR $TRIM\" ::: $ARR";
+    	parallel -j $NB_PROC --no-notice "getdupl_P {} $RATIO $FILE_A $FILE_B $OUTPUT_DIR $TRIM" ::: $ARR
+fi
+
+d=`date`
+mut=""
+echo "[$d] Compute estimated error rate.";
+if [[ $FILE_B == "" ]]
+    then 
+    	echo "[$d] awk -F \"\" -v trim=\"$TRIM\" \'BEGIN{for(i=0;i<256;i++)ord[sprintf(\"%c\",i)]=i ; n=0;s=0;nb=0}{sr=0 ; n=n+1 ; if(n==4){n=0;nb=nb+1 ; x=int(NF*trim/100) ; l=NF-2*x ; for(i=x;i<=x+l;i++){s=s+(10^(-(ord[\$i]-33)/10))} ; if(sr>1){sr=1} ; s=s+sr}}END{print s/nb}\' $OUTPUT_DIR/files/Sample_100_1.fastq";
+	mut=`awk -F "" -v trim="$TRIM" 'BEGIN{for(i=0;i<256;i++)ord[sprintf("%c",i)]=i ; n=0;s=0;nb=0}{sr=0 ; n=n+1 ; if(n==4){n=0;nb=nb+1 ; x=int(NF*trim/100) ; l=NF-2*x ; for(i=x;i<=x+l;i++){sr=sr+(10^(-(ord[$i]-33)/10))} ; if(sr>1){sr=1} ; s=s+sr}}END{print s/nb}' $OUTPUT_DIR/files/Sample_100_1.fastq`
+    else 
+    	echo "[$d] awk -F \"\" -v trim=\"$TRIM\" \'BEGIN{for(i=0;i<256;i++)ord[sprintf(\"%c\",i)]=i ; n=0;s=0;nb=0}{sr=0 ; n=n+1 ; if(n==4){n=0;nb=nb+1 ; x=int(NF*trim/100) ; l=NF-2*x ; for(i=x;i<=x+l;i++){s=s+(10^(-(ord[\$i]-33)/10))} ; if(sr>1){sr=1} ; s=s+sr}}END{print 2*s/nb}\' $OUTPUT_DIR/files/Sample_100_1.fastq $OUTPUT_DIR/files/Sample_100_2.fastq";
+	mut=`awk -F "" -v trim="$TRIM" 'BEGIN{for(i=0;i<256;i++)ord[sprintf("%c",i)]=i ; n=0;s=0;nb=0}{sr=0 ; n=n+1 ; if(n==4){n=0;nb=nb+1 ; x=int(NF*trim/100) ; l=NF-2*x ; for(i=x;i<=x+l;i++){sr=sr+(10^(-(ord[$i]-33)/10))} ; if(sr>1){sr=1} ; s=s+sr}}END{print 2*s/nb}' $OUTPUT_DIR/files/Sample_100_1.fastq $OUTPUT_DIR/files/Sample_100_2.fastq`    
+fi
+#echo "[$d] Error rate of $mut.";
+
+d=`date`
+echo "[$d] Extracting results.";
+echo "[$d] $EXTRACT -o $OUTPUT_DIR/data";
+$EXTRACT -o $OUTPUT_DIR/data
+
+d=`date`
+echo "[$d] Estimation of saturation.";
+echo "[$d] $NEOREG $OUTPUT_DIR/data/duplicates_data.csv $mut $OUTPUT_DIR/output > $OUTPUT_DIR/output/neoreg.out 2> $OUTPUT_DIR/output/neoreg.err ";
+$NEOREG $OUTPUT_DIR/data/duplicates_data.csv $mut $OUTPUT_DIR/output > $OUTPUT_DIR/output/neoreg.out 2> $OUTPUT_DIR/output/neoreg.err
+
+d=`date`
+echo "[$d] Ended..."

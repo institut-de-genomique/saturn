@@ -1,0 +1,1125 @@
+#! /usr/local/bin/perl -w
+
+use strict;
+use Getopt::Long;
+use File::Path; # qw( mkpath  rmtree );
+use File::Copy; # qw( move  copy);
+use IO::File;
+use File::Basename;
+use Compress::Zlib;
+use vars qw(@ARGV $verbose );
+
+##Variables d'interets##
+my $usage = "\nusage : getRandomSeq ( -sff <file.sff> | -fq <fastq> | -fqp <fastq1,fastq2> | -fa <fasta> | -fqint <fastqint> ) ( -n <nbSeq> | -prc <pourcentage entier> ) -o <outFile> (Optional: -untrim -mode <old:new:auto> default is auto) \n- Handles gzip files.\n\n";
+my %HashIndice;
+my %hash_ARG;
+$hash_ARG{mode} = "auto";
+our $SPLT_E;
+our $PTARGET = 0.05;
+our $PATIENCE = 100;
+our $CAP = 0.2;
+our $RATIO_WAIT_NSEQ = 100;
+our $MINWIND = 250;
+our $NORECOIL = 0;
+our $NOOFFSET = 0;
+
+our $recoil;
+our $enable_wind = 0;
+our @window = ();
+our @prev_window = ();
+our $nb;
+our $amounts = 0;
+our $MECOUNTER = 0;
+our $nseek = 0;
+our $soft_MECOUNTER = 0;
+our %ESTIM;
+our %ESTIM10;
+our %NB_E;
+our %NB_E_10;
+our $gapsize;
+our $THRESHOLD_PERCENT = 2;
+
+#######
+##SUB##
+#######
+
+sub getRandomIndice ($$){
+    my ($nb2get,$nbTOTAL)=@_;
+
+    if ($nbTOTAL<$nb2get){
+        if ($hash_ARG{force}){
+            $nb2get=$nbTOTAL;
+            warn "Nb seq $nb2get voulu superieur au $nbTOTAL du fichier !\n";
+        }else{
+            die "Nb seq $nb2get voulu superieur au $nbTOTAL du fichier !\n";
+        }
+    }
+
+    my %H;
+    my $i=1;
+    #srand(10); ???
+    while ($i <= $nb2get){
+        my $j=int(rand($nbTOTAL))+1;
+        if (defined($H{$j})){ next; }
+        $H{$j}=1;
+        $i++;
+    }
+    return (\%H);
+}
+
+#------------
+
+sub getfastSize($$){
+    my ($file,$motif)=@_;
+    my $nb=0;
+    my $cmd="";
+
+    if ($motif=~/fasta/){
+        $cmd=( $file =~ /\.gz$/i ) ? "gunzip -c $file | grep '>' | wc -l | awk '{ print \$1 }'" : "cat $file | grep '>' | wc -l | awk '{ print \$1 }'" ;
+        open (FAST, "$cmd | ") || die "Probleme wc -l sur fichier $file : $! \n";
+        $nb=<FAST>;
+        close (FAST);
+        return ($nb);
+    }
+
+    if (($motif=~/fastq/)or($motif=~/fastqint/)){
+    
+        $cmd=( $file =~ /\.gz$/i ) ? "gunzip -c $file | wc -l | awk '{ print \$1 }'" : "cat $file | wc -l | awk '{ print \$1 }'" ;
+        open (TT, "$cmd | ") || die "Probleme wc -l sur fichier $file : $! \n";
+        $nb=<TT>;
+        close (TT);
+
+        if ($nb%4==0){
+            return ($nb/4);
+        }else{
+            die "Probleme je n'ai pas le nb ligne attendu :: $nb n'est pas un multiple de 4 ?!?!?\n";
+        }
+    }
+ 
+     if ($motif=~/sff/){
+	open (RR,"sffinfo -a $hash_ARG{sff} | wc -l | ") || die " Probleme avec la commande sffinfo : $! \n";
+        $nb=<RR>;
+        close (RR);
+        return ($nb);
+    }
+    
+
+}
+
+#------------
+
+sub getRandomByPrc($$){
+    my ($nbTOTAL,$prc)=@_;
+
+    my $nb=int(($nbTOTAL*$prc)/100);
+    return (\%{ getRandomIndice($nb,$nbTOTAL) } );
+
+}
+
+
+sub fqp_fullextract{
+
+	my ($source1,$source2,$out1,$out2) = @_;
+	
+	#my $out1 = "toto.test.n1";
+	#my $source1 = "toto.test.gz";
+	
+	my $outfile1 = IO::File->new($out1,"w");
+	my $outfile2 = IO::File->new($out2,"w");
+
+	my $infile1 = gzopen ( "$source1", "rb" );
+	my $infile2 = gzopen ( "$source2", "rb" ); 
+	
+	my ($isRunning1, $isRunning2)=(1,1);
+	my ($lin1, $lin2);
+
+	while ( $isRunning1 && $isRunning2 ){
+		$isRunning1 = $infile1->gzreadline($lin1);
+		$isRunning2 = $infile2->gzreadline($lin2);
+		if ($isRunning1 != 0) {print $outfile1 $lin1;}
+		if ($isRunning2 != 0) {print $outfile2 $lin2;}
+	}
+
+	$outfile1->close;
+	$outfile2->close;
+	
+}
+
+sub fq_fullextract{
+
+	my ($source1,$out1) = @_;	
+	my $outfile1 = IO::File->new($out1,"w");
+	my $infile1 = gzopen ( "$source1", "rb" );
+	my $isRunning1 = 1;
+	my $lin1;
+
+	while ( $isRunning1 ){
+		$isRunning1 = $infile1->gzreadline($lin1);
+		if ($isRunning1 != 0) {print $outfile1 $lin1;}
+	}
+
+	$outfile1->close;	
+}
+
+sub create_link{
+
+	my ($source1,$out1) = @_;
+
+	system("ln -s $source1 $out1");
+	if (! -e $out1){
+		return 1;
+	}else{
+		return 0;
+	}
+}
+
+sub copy_file{
+
+	my ($source1,$out1) = @_;
+
+	system("cp $source1 $out1");
+	if (! -e $out1){
+		return 1;
+	}else{
+		return 0;
+	}
+}
+
+sub print_file{
+
+	my ($source1) = @_;
+
+	open FILE, "<$source1" or die $!;
+	while(<FILE>) {
+		print $_;
+	}
+	close(FILE);
+}
+
+sub get_reg {
+	my ($x1, $y1, $x2, $y2, $X) = @_;	
+	return (  ($y1*($x2-$X))   +    ($y2*($X-$x1)) )   /   ($x2 - $x1) ;	
+}
+
+sub neat_find_mate {
+
+	my ($pos, $FQ) = @_;
+	seek( $FQ, $pos, 0 );
+	$nseek++;
+	return (readline($FQ).readline($FQ).readline($FQ).readline($FQ));
+	
+}
+
+sub sum {
+	my ($a) = @_;
+	my @a = @{$a};
+	my $sum = 0;
+	$sum += int($_) for @a;
+	return $sum;
+}
+
+sub get_new_recoil {
+
+	my ($wind,$rec) = @_;
+	my @wind = @{$wind};
+	my $factor = -0.25+($amounts/$nb*1.8);
+	$factor = 1 if $factor > 1;
+	$factor = 0 if $factor < 0;
+	my $sum = sum(\@wind);
+	my $rate = ($sum - $PATIENCE) * (2/3) / $PATIENCE;
+	$rate = -1 * ($PTARGET - $rate) * $factor;
+	if ($rate > $CAP){
+		$rate = $CAP;
+	}elsif($rate < -1*$CAP){
+		$rate = -1*$CAP;
+	}
+	$rec = $rec + ($rec * $rate);
+	$rec = $MINWIND if $rec < $MINWIND;
+		
+	return int($rec);
+	
+}
+
+sub find_mate {
+
+	my ($sname, $pos, $FQ, $size_A, $size_B) = @_;
+	my @temp = split("/",$sname);
+	my $noslash;
+	my $counter;
+	my $zone;
+	my $previous = "";
+	my $current = "";
+	my @limits = (0,0);
+	my $start;
+	my $end;
+	my $temp;
+	my $offset = 0;
+	my $fqframe = -1;
+	my $flag1;
+	my $inseek = 0;
+	$soft_MECOUNTER=0;
+	if ($#temp >= 1){
+		pop(@temp);
+		$noslash = 1;
+	}else{
+		$noslash = 0;
+	}
+	$sname = join("",@temp);
+	my $seq = "";
+	my $i=0.5;
+	$pos = int(($pos * $size_B) / $size_A);
+	
+	if(!$NORECOIL){
+		if($enable_wind == 1){
+			if(($amounts % $PATIENCE == 0) && ($amounts >= $PATIENCE*1)){
+				$recoil = get_new_recoil(\@window,$recoil);
+				$gapsize = $recoil *2;
+				@window = ();
+			}
+		}else{
+			if($amounts % $PATIENCE == 0){
+				if( ( abs(sum(\@window) - sum(\@prev_window)) <= $PATIENCE*0.5) && ($amounts >= 1*$PATIENCE) && (sum(\@window) > 0) && (sum(\@prev_window) > 0)){
+					$enable_wind = 1;
+				}
+				@prev_window = @window;
+				@window = ();
+			}
+		}
+	}
+	
+	if(!$NOOFFSET){
+		if ($ESTIM{int(($pos/$size_B)*$SPLT_E)}){
+			$offset = $ESTIM{int(($pos/$size_B)*$SPLT_E)} ;
+		}else{
+			my $bot = -1;
+			my $top = -1;
+			my $it = -1;
+			my $stop = 0;
+			do{
+				$it++;
+				if(($bot == -1) && ($ESTIM{int(($pos/$size_B)*$SPLT_E)-$it})){
+				 	$bot = int(($pos/$size_B)*$SPLT_E)-$it;
+				}
+				if(($top == -1) && ($ESTIM{int(($pos/$size_B)*$SPLT_E)+$it})){
+				 	$top = int(($pos/$size_B)*$SPLT_E)+$it;
+				}		
+				if(($bot != -1) && ($top != -1)){
+					$stop = 1;
+				}
+			} while(((int(($pos/$size_B)*$SPLT_E)-$it >= 0) || (int(($pos/$size_B)*$SPLT_E)+$it <= $SPLT_E)) && ($stop == 0));
+		
+			if(($bot != -1) || ($top != -1)){
+				if($bot == -1){
+					$offset = $ESTIM{$top};
+				}elsif($top == -1){
+					$offset = $ESTIM{$bot};
+				}else{	
+					$offset = int(get_reg($bot,$ESTIM{$bot},$top,$ESTIM{$top},int(($pos/$size_B)*$SPLT_E)));	
+				}
+			}
+		}
+	}
+	while(!$seq){
+		$i=$i+0.5;
+		if($i == int($i)){
+			if($limits[1]!=1){
+				$start = $pos+$offset+$gapsize*(int($i)-1)-$recoil;
+				$end = $pos+$offset+$gapsize*int($i);
+				if($start<=0){
+					$start = 0;
+					$limits[0]=1;
+				}
+			}else{
+				next;
+			}
+		}else{
+			if($limits[0]!=1){		
+				$start = $pos+$offset-$gapsize*int($i)-$recoil;
+				$end = $pos+$offset-$gapsize*(int($i)-1);
+				if($start<=0){
+					$start = 0;
+					$limits[0]=1;
+				}
+			}else{
+				next;
+			}	
+		}
+		seek( $FQ, $start, 0 );
+		$nseek++;
+		$inseek++;
+		$flag1 = 0;
+		$counter = 0;
+		$fqframe = -1;
+		while(readline($FQ)){
+		
+			$current = $_;
+			$MECOUNTER+= length($current);
+			$soft_MECOUNTER+= length($current);
+			$counter += length($current);
+			if($fqframe >= 0){
+				if($fqframe > 0){
+					$fqframe--;
+					next;
+				}
+			}	
+			chomp($current);
+			if(substr($current,0,3) ne substr($sname,0,3)){
+				next;
+			}
+			
+			$fqframe = 3;
+			if ($noslash == 1){
+				@temp = split("/",$current);
+				if ($#temp >= 1){
+					pop(@temp);
+					$temp = join("",@temp);
+				}else{
+					$temp = $current;
+				}
+			}else{
+				$temp = $current;
+			}
+			if($temp eq $sname){
+				push(@window,$inseek) if $amounts >= 1*$PATIENCE;
+				if($ESTIM{int(($pos/$size_B)*$SPLT_E)}){
+					$ESTIM{int(($pos/$size_B)*$SPLT_E)} = ($ESTIM{int(($pos/$size_B)*$SPLT_E)} * $NB_E{int(($pos/$size_B)*$SPLT_E)} + ($start+$counter-$pos)) / ($NB_E{int(($pos/$size_B)*$SPLT_E)}+1) ; 
+					$NB_E{int(($pos/$size_B)*$SPLT_E)}++;
+				}else{
+					$ESTIM{int(($pos/$size_B)*$SPLT_E)} = $start+$counter-$pos ; 
+					$NB_E{int(($pos/$size_B)*$SPLT_E)} = 1;
+				}
+
+				$seq = $current."\n".readline($FQ).readline($FQ).readline($FQ);
+				last;
+			}
+	
+			if($start+$counter>=$size_B){
+				last;
+				$limits[1] = 1;
+			}
+			if($end<=$counter+$start){
+				last;
+			}
+		}
+		if(($limits[0] == 1) && ($limits[1] == 1)){
+			last;
+		}
+	}
+
+    return ($seq);
+}
+
+
+
+sub fast_grs{
+
+	my ( $INPUT_FILE, $INPUT_FILE_B, $NBSEQ, $RSEQ, $OUTPUT_FILE, $UNTRIM, $FORCE,) = @_;
+	
+	my $id;
+	my $flag = 0;
+	my $count = 0;
+	my $meansize = 0;
+	my $strike = 0;
+	my %seen;
+	my $sizeblock = 1;
+	my $seq_B;
+	my $zone;
+	my @result;
+	my $FQA;
+	my $FQB;
+	my $previous = "";
+	my $current = "";
+	$amounts = 0;
+	if($OUTPUT_FILE){
+		if($INPUT_FILE_B){
+			open ( SAMPLE, ">" ,$OUTPUT_FILE."_1.fastq" );
+			open ( SAMPLE2, ">" ,$OUTPUT_FILE."_2.fastq" );
+		}else{
+			open ( SAMPLE, ">" ,$OUTPUT_FILE );
+		}
+	}	
+	
+	if(($NBSEQ == 0) && ($RSEQ < 100) && ($RSEQ > 0)){
+		$nb = $RATIO_WAIT_NSEQ + 1;
+	}elsif($NBSEQ > 0){
+		$nb = $NBSEQ;
+	}else{
+		die "Error with asked amount of seq.\n";
+	}
+	
+	open ( $FQA, "<" ,$INPUT_FILE );
+	open ( $FQB, "<" ,$INPUT_FILE_B ) if $INPUT_FILE_B;
+	my $size = -s $INPUT_FILE;
+	my $size_B;
+	if($INPUT_FILE_B){
+		$size_B = -s $INPUT_FILE_B; ##B
+	}
+	
+	my $seq = "";
+	my $afact = 1800;
+	my $bfact = -10000;
+	if(!$recoil){
+		$recoil = int(($size/1000000000)*$afact+$bfact);
+		if ($recoil<4000){ $recoil=4000; }
+	}
+	$gapsize = $recoil*2;
+	
+	if(!$SPLT_E){
+		$SPLT_E = $NBSEQ;
+		if($SPLT_E<10){ $SPLT_E = 10; }
+		if($SPLT_E>100000){ $SPLT_E = 100000; }	
+	}
+
+	while($amounts < $nb){
+		if(($amounts >= $RATIO_WAIT_NSEQ) && ($NBSEQ == 0)){
+			$nb = int(0.01*$RSEQ*$size/$sizeblock) ;
+		}
+		if ((!$FORCE) && ($amounts >= $RATIO_WAIT_NSEQ) && ($nb > int($size/$sizeblock))) {
+			die "Program was stopped prematurely , due to the excessive number of sequences required ($nb) in comparison to the estimated number of sequences found in the files (".int($size/$sizeblock).").";
+		}
+		$id = int(rand($size))+1;
+		seek( $FQA, $id, 0 );
+		$count = 0;
+		$flag = 0;
+		$current = "";
+		$previous = "";
+		while(readline($FQA)){
+	
+			$current = $_;
+			$count += length($current);
+			$MECOUNTER+= length($current);
+			chomp($current);
+			if ((length($previous) > 0) && (substr($previous,0,1) eq '@') && ($current =~ /^[A-Za-z]+$/)){
+				if(! exists $seen{$previous}){
+					$flag = 1;
+					$seq = $previous."\n".$current."\n".readline($FQA).readline($FQA);
+					if($INPUT_FILE_B){
+						if(!$UNTRIM){
+							$seq_B = find_mate($previous, $id+$count-length($previous."\n".$current."\n"), $FQB, $size, $size_B);
+						}else{
+							$seq_B = neat_find_mate($id+$count-length($previous."\n".$current."\n"), $FQB);
+						}
+					}
+					$amounts++;
+					if($amounts==1){
+						$meansize = length($current);
+						$sizeblock = length($seq);
+					}else{
+						$meansize = ($meansize*$amounts+length($current))/($amounts+1);
+						$sizeblock = ($sizeblock*$amounts+length($seq))/($amounts+1);
+					}
+	
+					$seen{$previous} = undef;
+					if($OUTPUT_FILE){
+						print SAMPLE $seq;
+						print SAMPLE2 $seq_B if $INPUT_FILE_B;		
+					}else{
+						print $seq;
+					}
+					last;
+				}else{
+					$strike++;
+					$flag = 0;
+					last;
+				}
+			}
+	
+			$previous = $current;
+		}
+	
+	}
+	
+	if($OUTPUT_FILE){
+		close(SAMPLE);
+		close(SAMPLE2) if $INPUT_FILE_B;
+	}
+}
+
+sub size_eval{
+
+	my ( $INPUT_FILE) = @_;
+	
+	my $id;
+	my $flag = 0;
+	my $meansize = 0;
+	my $sizeblock = 1;
+	my $FQA;
+	my $previous = "";
+	my $current = "";
+	$amounts = 0;	
+	open ( $FQA, "<" ,$INPUT_FILE );
+	my $size = -s $INPUT_FILE;
+
+	
+	my $seq = "";
+
+	while($amounts < 100){
+
+
+		$id = int(rand($size))+1;
+		seek( $FQA, $id, 0 );
+		$flag = 0;
+		$current = "";
+		$previous = "";
+		while(readline($FQA)){
+	
+			$current = $_;
+			$MECOUNTER+= length($current);
+			chomp($current);
+			if ((length($previous) > 0) && (substr($previous,0,1) eq '@') && ($current =~ /^[A-Za-z]+$/)){
+					$flag = 1;
+					$seq = $previous."\n".$current."\n".readline($FQA).readline($FQA);
+
+					$amounts++;
+					if($amounts==1){
+						$meansize = length($current);
+						$sizeblock = length($seq);
+					}else{
+						$meansize = ($meansize*$amounts+length($current))/($amounts+1);
+						$sizeblock = ($sizeblock*$amounts+length($seq))/($amounts+1);
+					}
+					last;
+			}
+	
+			$previous = $current;
+		}
+	
+	}
+	return int($size/$sizeblock);
+}
+
+
+########
+##MAIN##
+########
+
+
+##Arguments##
+
+
+my $pgm  = basename ( $0 ) ;
+unless (GetOptions(\%hash_ARG,
+        "help",
+        "h",
+        "force",
+        "fa=s",
+        "fq=s",
+        "sff=s",
+        "fqp=s",
+        "fqint=s",
+        "prc=s",
+        "n=s",
+        "mode=s",
+        "o=s",
+    )){
+    die "$pgm: erreur dans les arguments, voir -help \n";
+}
+
+if ( ($hash_ARG{help}) or ($hash_ARG{h}) ) {
+    die $usage;
+}
+
+if (defined($hash_ARG{prc})){
+    if ($hash_ARG{prc}=~/,/){
+        $hash_ARG{prc}=~s/,/\./;
+    }elsif ($hash_ARG{prc} <= 0){
+        die "Le pourcentage doit etre sup a 0 !!!\n";
+    }elsif ($hash_ARG{prc} > 100){
+        die "Le pourcentage doit etre inf ou egale a 100!!!\n";
+    }
+}elsif (($hash_ARG{n} < 1)){
+    die "Le nbSeq doit etre sup a 1 !!!\n";
+}
+
+
+###############
+##let's go!!!##
+###############
+
+my @size;
+if (defined($hash_ARG{fqp})){
+	my ($fq1,$fq2)= split /,/, $hash_ARG{fqp};
+	$size[0] = -s $fq1;
+	$size[1] = -s $fq2;
+	
+	if(
+	($hash_ARG{mode} eq "new")
+	||(
+	($hash_ARG{mode} ne "old")
+	&&
+	( $fq1 !~ /\.gz$/i )
+	&&
+	( $fq2 !~ /\.gz$/i )
+	&&(	
+	(defined($hash_ARG{prc}) && ($hash_ARG{prc} <= $THRESHOLD_PERCENT))
+	||
+	(defined($hash_ARG{n}) && ($hash_ARG{n} <= 0.01*$THRESHOLD_PERCENT*size_eval($fq1)))
+	)))
+	{
+		my $UNTRIM;
+		my $OUTP = "";
+		if($size[0] == $size[1]){
+			$UNTRIM = 1;
+		}else{
+			$UNTRIM = 0;
+		}
+		
+		if (defined($hash_ARG{o})){
+			$OUTP = $hash_ARG{o};
+		}else{
+			my $OUTP = basename( $fq1 );
+			my $PrefixT="_RdmSeq_${hash_ARG{n}}";
+			$OUTP=~s/.fastq/$PrefixT/;
+		}
+		$hash_ARG{n} = 0 if !defined($hash_ARG{n});
+		$hash_ARG{prc} = 0 if !defined($hash_ARG{prc});
+		fast_grs( $fq1, $fq2, $hash_ARG{n}, $hash_ARG{prc}, $OUTP, $UNTRIM, 0);
+		exit 0;
+	}
+}	
+
+if (defined($hash_ARG{fq})){
+
+	$size[0] = -s $hash_ARG{fq};
+	
+	if(
+	($hash_ARG{mode} eq "new")
+	||(
+	($hash_ARG{mode} ne "old")
+	&&
+	( $hash_ARG{fq} !~ /\.gz$/i )
+	&&(	
+	(defined($hash_ARG{prc}) && ($hash_ARG{prc} <= $THRESHOLD_PERCENT))
+	||
+	(defined($hash_ARG{n}) && ($hash_ARG{n} <= 0.01*$THRESHOLD_PERCENT*size_eval($hash_ARG{fq})))
+	)))
+	{
+		my $OUTP = "";
+		
+		if (! defined($hash_ARG{o})){
+			$OUTP = basename( $hash_ARG{fq} );
+			my $PrefixT="_RdmSeq_${hash_ARG{n}}";
+			$OUTP=~s/.fastq/$PrefixT/;
+		}
+		$hash_ARG{n} = 0 if !defined($hash_ARG{n});
+		$hash_ARG{prc} = 0 if !defined($hash_ARG{prc});
+		fast_grs( $hash_ARG{fq}, undef, $hash_ARG{n}, $hash_ARG{prc}, $hash_ARG{o}, 0, 0);
+		exit 0;
+	}
+}	
+
+
+
+if (defined($hash_ARG{n}) && $hash_ARG{force}){
+	my $sequences_amount=0;
+	if (defined($hash_ARG{sff})){
+		$sequences_amount = getfastSize($hash_ARG{sff},"sff");
+	}elsif (defined($hash_ARG{fq})){
+		$sequences_amount = getfastSize($hash_ARG{fq},"fastq");
+	}elsif (defined($hash_ARG{fa})){
+		$sequences_amount = getfastSize($hash_ARG{fa},"fasta");
+	}elsif (defined($hash_ARG{fqint})){
+		$sequences_amount = getfastSize($hash_ARG{fqint},"fastqint");
+	}elsif (defined($hash_ARG{fqp})){	
+		my ($fqone,$fqtwo)= split /,/, $hash_ARG{fqp};	
+		$sequences_amount = getfastSize($fqone,"fastq");
+		
+		if ($sequences_amount != getfastSize($fqtwo,"fastq")){
+		        die "Problème avec les ficher fq d'entrée, les deux fq n'ont pas le meme nombre de sequences !!!\n";
+		}		
+	}
+	if ($hash_ARG{n} >= $sequences_amount){
+		$hash_ARG{prc} = 100;
+	}
+	#print "---> $sequences_amount \t$hash_ARG{n}";
+}
+
+if (defined($hash_ARG{prc})){
+	if (defined($hash_ARG{sff}) && ($hash_ARG{prc} == 100)){
+
+	    if (defined($hash_ARG{o})){
+	   	copy_file($hash_ARG{sff},$hash_ARG{o});
+	    }else{
+	   	copy_file($hash_ARG{sff},"454Reads.sff");
+	    }
+		exit 0;
+	}
+
+	if (defined($hash_ARG{fa}) && ($hash_ARG{prc} == 100)){
+
+	    if (defined($hash_ARG{o})){
+	   	( $hash_ARG{fa} =~ /\.gz$/i ) ? fq_fullextract($hash_ARG{fa},$hash_ARG{o}) : copy_file($hash_ARG{fa},$hash_ARG{o});
+	    }else{
+	   	( $hash_ARG{fa} =~ /\.gz$/i ) ? system( "gunzip -c $hash_ARG{fa} ") : print_file($hash_ARG{fa});
+	    }
+		exit 0;
+	}
+
+	if (defined($hash_ARG{fq}) && ($hash_ARG{prc} == 100)){
+
+	    if (defined($hash_ARG{o})){
+	   	( $hash_ARG{fq} =~ /\.gz$/i ) ? fq_fullextract($hash_ARG{fq},$hash_ARG{o}) : copy_file($hash_ARG{fq},$hash_ARG{o});
+	    }else{
+	   	( $hash_ARG{fq} =~ /\.gz$/i ) ? system( "gunzip -c $hash_ARG{fq} ") : print_file($hash_ARG{fq});
+	    }
+		exit 0;
+	}
+
+	if (defined($hash_ARG{fqint}) && ($hash_ARG{prc} == 100)){
+
+	    if (defined($hash_ARG{o})){
+	   	copy_file($hash_ARG{fqint},$hash_ARG{o});
+	    }else{
+	   	print_file($hash_ARG{fqint});
+	    }
+		exit 0;
+	}
+
+	if (defined($hash_ARG{fqp}) && ($hash_ARG{prc} == 100)){
+
+	    my ($fstq1,$fstq2)=split /,/, $hash_ARG{fqp};
+	    my ($out1,$out2);
+	    if (defined($hash_ARG{o})){
+		($out1,$out2)=("${hash_ARG{o}}_1.fastq","${hash_ARG{o}}_2.fastq");
+	    }else{
+		my $f1 = basename( $fstq1 );
+		my $f2 = basename( $fstq2 );
+		my $Prefix="_RdmSeq_${hash_ARG{n}}_.fastq";
+		$f1=~s/.fastq/$Prefix/;
+		$f2=~s/.fastq/$Prefix/;
+		($out1,$out2)=("$f1","$f2");
+	    }
+	   
+		if (( $fstq1 =~ /\.gz$/i ) && ( $fstq2 =~ /\.gz$/i )){
+			fqp_fullextract($fstq1,$fstq2,$out1,$out2);
+		}else{
+		    if(( $fstq1 =~ /\.gz$/i ) || ( $fstq2 =~ /\.gz$/i )){
+			die;
+		    } else {
+			    copy_file($fstq1,$out1);
+			    copy_file($fstq2,$out2);
+		    }
+		}
+	    exit 0;
+	}
+}
+
+###-SFF-###
+if (defined($hash_ARG{sff})){
+    my $cmd;
+    my $Nseq;
+
+
+    if (defined($hash_ARG{prc})){
+        open (RR,"sffinfo -a $hash_ARG{sff} | wc -l | ") || die " Probleme avec la commande sffinfo : $! \n";
+        my $totSeq=<RR>;
+        $Nseq=int(($totSeq*$hash_ARG{prc})/100);
+    }else{
+        $Nseq=$hash_ARG{n};
+    }
+
+    if (defined($hash_ARG{o})){
+        $cmd="sfffile -o $hash_ARG{o} -pickr $Nseq $hash_ARG{sff}";
+    }else{
+        $cmd="sfffile -pickr $Nseq $hash_ARG{sff}";
+    }
+
+    if(system ("$cmd")) {
+        die "Probleme avec sfffile : $cmd  !!!\n";
+    }else{
+        exit 0;
+    }
+}
+
+
+####FASTQ PAIRED####
+
+if(defined($hash_ARG{fqp})){
+
+    my ($fstq1,$fstq2)=split /,/, $hash_ARG{fqp};
+    my ($out1,$out2);
+    my ($handleFin1, $handleFin2, $handleFout1, $handleFout2) = (IO::File->new(), IO::File->new(), IO::File->new(), IO::File->new());
+    if (defined($hash_ARG{o})){
+        ($out1,$out2)=("${hash_ARG{o}}_1.fastq","${hash_ARG{o}}_2.fastq");
+    }else{
+        my $f1 = basename( $fstq1 );
+        my $f2 = basename( $fstq2 );
+        my $Prefix="_RdmSeq_${hash_ARG{n}}_.fastq";
+        $f1=~s/.fastq/$Prefix/;
+        $f2=~s/.fastq/$Prefix/;
+        ($out1,$out2)=("$f1","$f2");
+    }
+    if( $fstq1 =~ /\.gz$/i ){
+        $handleFin1 =  gzopen ( "$fstq1", "rb" ) || die "Error: unable to open file $fstq2 !!!\n";
+    } else {
+        open ( $handleFin1, "<" ,"$fstq1" ) || die "Error: unable to open file $fstq1 !!!\n";
+    }
+    if( $fstq2 =~ /\.gz$/i ){
+        $handleFin2 = gzopen ( "$fstq2", "rb" ) || die "Error: unable to open file $fstq2 !!!\n";
+    } else {
+        open ( $handleFin2, "<" ,"$fstq2" ) || die "Error: unable to open file $fstq2 !!!\n";
+    }
+
+    open ( $handleFout1, ">", "$out1" ) || die "Error: unable to open file $out1 !!!\n";
+    open ( $handleFout2, ">", "$out2" ) || die "Error: unable to open file $out2 !!!\n";
+
+    my ($GlobCount,$SeqCount,$CurrentCount,$Mod,$lin1,$lin2,$isRunning1, $isRunning2)=(0,1,0,0,"","",1,2);
+    
+    if (defined($hash_ARG{prc})){
+        #%HashIndice = %{ getRandomByPrc(getfastSize($fstq1,"fastq"),$hash_ARG{prc}) };
+        
+	############### HIPERCENT ALGO ################
+
+	my $it = 0;
+	my $grab = 0;
+    while ( $isRunning1 && $isRunning2 ){
+
+        if( $fstq1 =~ /\.gz$/i ){
+            $isRunning1 = $handleFin1->gzreadline($lin1);
+        } else{
+            $lin1=<$handleFin1>;
+            $isRunning1 = ( $lin1 ) ? 1 : 0;
+        }
+        if( $fstq2 =~ /\.gz$/i ){
+            $isRunning2 = $handleFin2->gzreadline($lin2);
+        } else{
+            $lin2=<$handleFin2>;
+            $isRunning2 = ( $lin2 ) ? 1 : 0;
+        }
+       if ( $isRunning1 && $isRunning2 ){
+            
+            if ($it%4==0){
+ 	           if($hash_ARG{prc} >= rand(100)){	
+ 		           	$grab = 1;
+ 	           }else{
+  		          	$grab = 0;
+    	        }
+       	    }
+            if($grab == 1){
+                    print $handleFout1 $lin1;
+                    print $handleFout2 $lin2;
+            }
+       }
+       
+     $it++; 
+            
+    }
+    close ($handleFout1);
+    close ($handleFout2);
+    exit 0;  
+
+    }
+    #}else{
+    #    %HashIndice = %{ getRandomIndice($hash_ARG{n},getfastSize($fstq1,"fastq")) }; #markt
+    #}
+	if (defined($hash_ARG{n})){
+		%HashIndice = %{ getRandomIndice($hash_ARG{n},getfastSize($fstq1,"fastq")) };
+		#warn ("Output file might not exactly contain $hash_ARG{n} reads ");
+		#$hash_ARG{prc} = ($hash_ARG{n}/getfastSize($fstq1,"fastq"))*100;
+		#warn ("output files will contains around $hash_ARG{prc} % of input files.");
+	}
+
+    while ( $isRunning1 && $isRunning2 ){
+
+        if( $fstq1 =~ /\.gz$/i ){
+            $isRunning1 = $handleFin1->gzreadline($lin1);
+        } else{
+            $lin1=<$handleFin1>;
+            $isRunning1 = ( $lin1 ) ? 1 : 0;
+        }
+        if( $fstq2 =~ /\.gz$/i ){
+            $isRunning2 = $handleFin2->gzreadline($lin2);
+        } else{
+            $lin2=<$handleFin2>;
+            $isRunning2 = ( $lin2 ) ? 1 : 0;
+        }
+        if ( $isRunning1 && $isRunning2 ){
+            $GlobCount++;
+
+            if ($Mod==0){
+                if (defined($HashIndice{$SeqCount})){
+                    $CurrentCount=4;
+                }
+            }
+
+            if ($CurrentCount>0){
+                if ($CurrentCount==4){
+                    print $handleFout1 $lin1;
+                    print $handleFout2 $lin2;
+                    $CurrentCount--;
+                }else{
+                    print $handleFout1 $lin1;
+                    print $handleFout2 $lin2;
+                    $CurrentCount--;
+                }
+            }
+
+            $SeqCount=($GlobCount/4)+1;
+            $Mod=$GlobCount%4;
+        }
+    }
+
+    close ($handleFout1);
+    close ($handleFout2);
+    exit 0;
+
+
+}
+    
+#############################################################################################
+
+
+my $SeqFile;
+if (defined($hash_ARG{fa})){
+    if (defined($hash_ARG{prc})){
+        %HashIndice = %{ getRandomByPrc(getfastSize($hash_ARG{fa},"fasta"),$hash_ARG{prc}) };
+    }else{
+        %HashIndice = %{ getRandomIndice($hash_ARG{n},getfastSize($hash_ARG{fa},"fasta")) };
+    }
+    $SeqFile=$hash_ARG{fa};
+}elsif (defined($hash_ARG{fq})){
+    if (defined($hash_ARG{prc})){
+        #%HashIndice = %{ getRandomByPrc(getfastSize($hash_ARG{fq},"fastq"),$hash_ARG{prc}) };
+    }else{
+        %HashIndice = %{ getRandomIndice($hash_ARG{n},getfastSize($hash_ARG{fq},"fastq")) };
+		#warn ("Output file might not exactly contain $hash_ARG{n} reads ");
+		#$hash_ARG{prc} = ($hash_ARG{n}/getfastSize($hash_ARG{fq},"fastq"))*100;
+		#warn ("output files will contains around $hash_ARG{prc} % of input files.");
+    }
+    $SeqFile=$hash_ARG{fq};
+}elsif (defined($hash_ARG{fqint})){
+    if (defined($hash_ARG{prc})){
+        %HashIndice = %{ getRandomByPrc(getfastSize($hash_ARG{fqint},"fastqint"),$hash_ARG{prc}) };
+    }else{
+        %HashIndice = %{ getRandomIndice($hash_ARG{n},getfastSize($hash_ARG{fqint},"fastqint")) };
+    }
+    $SeqFile=$hash_ARG{fqint};
+}
+
+my $FAST;
+my $ligne;
+if( $SeqFile =~ /\.gz$/i ){
+    $FAST = gzopen ("$SeqFile", "rb" ) || die "Error: unable to open file $SeqFile : $! \n";
+    $FAST->gzreadline($ligne);
+} else {
+    $FAST = IO::File->new();
+    open ($FAST, "<", "$SeqFile") || die "Error: unable to open file $SeqFile : $! \n";
+    $ligne=<$FAST>;
+}
+
+my $count=0;
+my $c=0;
+
+
+if (defined($hash_ARG{o})){
+    open ( HANDLE, ">" , "$hash_ARG{o}" ) || error();
+}
+
+my ($GlobCount,$SeqCount,$CurrentCount,$Mod)=(0,1,0,0);
+	my $it = 0;
+	my $grab = 0;
+while ( $ligne ){
+
+    ####FASTQ####
+    if(defined($hash_ARG{fq})){
+    	if(defined($hash_ARG{prc})){
+	            if ($it%4==0){
+	 	           if($hash_ARG{prc} >= rand(100)){	
+	 		           	$grab = 1;
+	 	           }else{
+	  		          	$grab = 0;
+	    	        }
+	       		}
+	            if($grab == 1){
+		            #print $Handle $ligne;
+					if (defined($hash_ARG{o})){
+						print HANDLE $ligne;
+					}else{
+						print $ligne;
+					}
+		        }
+	            $it++;
+	 }else{
+        $GlobCount++;
+
+        if ($Mod==0){
+            if (defined($HashIndice{$SeqCount})){
+                $CurrentCount=4;
+            }
+        }
+
+        if ($CurrentCount>0){
+            #print $Handle $ligne;
+			if (defined($hash_ARG{o})){
+				print HANDLE $ligne;
+			}else{
+				print $ligne;
+			}
+            $CurrentCount--;
+        }
+
+        $SeqCount=($GlobCount/4)+1;
+        $Mod=$GlobCount%4;
+        
+         }           
+        ####FASTQINT####
+    }elsif(defined($hash_ARG{fqint})){
+
+        $GlobCount++;
+
+        if ($Mod==0){
+            if (defined($HashIndice{$SeqCount})){
+                $CurrentCount=4;
+            }
+        }
+
+        if ($CurrentCount>0){
+            #print $Handle $ligne;
+			if (defined($hash_ARG{o})){
+				print HANDLE $ligne;
+			}else{
+				print $ligne;
+			}
+            $CurrentCount--;
+        }
+
+        $SeqCount=($GlobCount/4)+1;
+        $Mod=$GlobCount%4;
+
+        #####FASTA#####
+    }elsif(defined($hash_ARG{fa})){
+
+        if ($ligne=~/^\>\w+/){
+            $count++;
+            if (defined($HashIndice{$count})){
+            	#print $Handle $ligne;
+				if (defined($hash_ARG{o})){
+					print HANDLE $ligne;
+				}else{
+					print $ligne;
+				}
+            $c=1;
+            }else{
+                $c=0;
+            }
+        }else{
+            if ($c==1){
+            	#print $Handle $ligne;
+				if (defined($hash_ARG{o})){
+					print HANDLE $ligne;
+				}else{
+					print $ligne;
+				}
+            }
+        }
+    }
+    if( $SeqFile =~ /\.gz$/i ){
+    	$FAST->gzreadline($ligne);
+    }else{
+    	$ligne=<$FAST>;
+    }
+}
+
+if(! $SeqFile =~ /\.gz$/i ){
+	close ($FAST);
+}

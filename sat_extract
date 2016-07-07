@@ -1,0 +1,58 @@
+#!/usr/bin/perl -w
+
+use strict;
+use FileHandle;
+use File::Basename;
+use Getopt::Long;
+
+my @tmpline;
+my $stock = "";
+my $nseq = 1;
+my $biggest = 0;
+my $pflag = 0;
+my $paired = 0;
+
+my ($FILE,$OUTPUT_DIR) = ("duplicates_data.csv","./");
+
+my $result = &GetOptions(
+			 'f=s'       => \$FILE,
+			 "o=s"       => \$OUTPUT_DIR
+                        );
+                        
+opendir (DIR, $OUTPUT_DIR) or die $!;	
+while (my $file = readdir(DIR)) {
+	if ($file =~ /duplicates_reads_(.*).stats/){
+		open(FILE,"<","$OUTPUT_DIR/$file");
+		$stock .= int($1);
+		$pflag = 0;
+		while(<FILE>){
+			@tmpline = split(" ",$_);
+			if (@tmpline && ($tmpline[0] eq "nbReadsInSample=")){
+				$stock .= "\t".$tmpline[$#tmpline];
+				$pflag++;
+			}
+			if(@tmpline && $tmpline[0] eq "nbReadsInInput="){
+				$nseq = $tmpline[1];
+				if($biggest<$nseq){
+					$biggest = $nseq;
+				}
+			}
+		}
+		if($pflag >= 3){
+			$paired = 1;
+		}
+		$stock .= "\t".$nseq;
+		$stock .= "\n";	
+		close(FILE);
+
+	}
+}
+closedir(DIR);
+open(FTAB, ">", "$OUTPUT_DIR/$FILE");
+if($paired==1){
+	print FTAB "$biggest\tPAIRS\tREAD1\tREAD2\tNSEQ\n";
+}else{
+	print FTAB "$biggest\tDUPL\tNSEQ\n";
+}
+print FTAB $stock;
+close(FTAB);
