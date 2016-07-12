@@ -66,7 +66,7 @@ Several directory are created in the output directory :
 
 # ACKNOWLEDGMENTS
 
-Jean-Marc Aury, Amin Madoui and Stefan Engelen - NaS's authors
+Stefan Engelen, Cyril Firmo, Amin Madoui and Jean-Marc Aury - Saturn's authors
 
 This work was financially supported by the Genoscope, 
 Institut de Genomique, CEA and Agence Nationale de la 
