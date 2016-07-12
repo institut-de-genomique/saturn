@@ -1,4 +1,4 @@
-# SATURN
+## SATURN
 
 Saturn is a tool for assessing the library saturation without alignment.
 It allows a sequencing platform to assess the saturation,
@@ -17,11 +17,11 @@ for more information about the contents of this license.
 Saturn home on the web is http://www.genoscope.cns.fr/externe/saturn/
 
 
-# RUNNING SATURN
+## RUNNING SATURN
 
         Usage : saturn --fq1 <fastq file 1> --fq2 <fastq file 2> --o <output directory> {Options}
 
-# OPTION
+## OPTION
 
         --fq1     : illumina reads (R1) in fastQ format
         --fq2     : illumina reads (R2) in fastQ format (Optional)
@@ -31,7 +31,7 @@ Saturn home on the web is http://www.genoscope.cns.fr/externe/saturn/
         --h       : help message
 
 
-# RESULT
+## RESULT
 
 Several directory are created in the output directory : 
   - files : contain sample files of increasing size generated from the input fastq files  
@@ -39,7 +39,7 @@ Several directory are created in the output directory :
   - output : contain results images and stats of saturn (via neoreg).
 
 
-# PRE-REQUISITES
+## PRE-REQUISITES
 
   - A Linux based operating system.
   - Binaries are provided for the following platform : Linux x86_64
@@ -51,7 +51,7 @@ Several directory are created in the output directory :
   - parallel installed (working with ver. 20130922-1)
 
 
-# INSTALLATION
+## INSTALLATION
 
   1. Download the current tarball archive from http://www.genoscope.cns.fr/externe/saturn/      
   `wget http://www.genoscope.cns.fr/externe/saturn/saturn_latest.tar.gz`
@@ -68,7 +68,7 @@ Several directory are created in the output directory :
 If you have questions about Saturn, you may ask them to sengelen [at] genoscope [.] cns [.] fr and jmaury [at] genoscope [.] cns [.] fr . You may also create an issue to ask questions on github website: https://github.com/institut-de-genomique/saturn/issues. 
 
 
-# ACKNOWLEDGMENTS
+## ACKNOWLEDGMENTS
 
 Stefan Engelen, Cyril Firmo, Amin Madoui and Jean-Marc Aury - Saturn's authors
 
