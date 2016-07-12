@@ -14,7 +14,7 @@ Saturn is distributed open-source under CeCILL
 FREE SOFTWARE LICENSE. Check out http://www.cecill.info/
 for more information about the contents of this license.
 
-Saturn home on the web is http://www.genoscope.cns.fr/saturn
+Saturn home on the web is http://www.genoscope.cns.fr/externe/saturn/
 
 
 # RUNNING SATURN
