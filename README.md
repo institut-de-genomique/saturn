@@ -23,12 +23,12 @@ Saturn home on the web is http://www.genoscope.cns.fr/saturn
 
 # OPTION
 
-        --fq1        : illumina reads (R1) in fastQ format
-        --fq2        : illumina reads (R2) in fastQ format (Optional)
-        --nparts     : number of parts to split file
-        --o        : Output directory, default is Saturn_date_pid
-        --nb_proc    : Number of parallel task, default is 16
-        --h           : help message
+        --fq1   : illumina reads (R1) in fastQ format
+        --fq2   : illumina reads (R2) in fastQ format (Optional)
+        --nparts        : number of parts to split file
+        --o     : Output directory, default is Saturn_date_pid
+        --nb_proc       : Number of parallel task, default is 16
+        --h     : help message
 
 
 # RESULT
