@@ -38,6 +38,17 @@ Several directory are created in the output directory :
   - data : contain the output files of fastx_estimate_duplicatedReads on each sample and a file 'duplicates_data.csv' which sumarize level of duplication. This last file is used in input for neoreg which create a estimation of the saturation
   - output : contain results images and stats of saturn (via neoreg).
 
+File 'summary.txt' in output directory contain a description of the regression model, an estimation of the number of fragments in the library and a table depicting the complexity of sequenced fragments (X<1) and benefit of additionnal sequencing (X>1) until having 95% of the unique fragments of the library :
+  - X : factor of the number of reads in the input fastq file. For example the line X=2 give the estimation of the complexity if the library is sequenced one more time.
+  - nbReads : number of reads or pair reads sequenced
+  - nUniq : estimation of the number of unique read or pair reads if nbReads were sequenced
+  - nUniqError : estimation of the number of unique fragment if nbReads were sequenced. This correspond to nUniq minus the estimated number of read or pair reads with errors.
+  - %dupl : duplication rate if nbReads were sequenced
+  - pbUniq : probability of sequencing a new fragment after X sequencing
+
+Two jpg files depicting the curves nUniqError (dotted curve) and nUniq (plain curve) according to the sequenced number of reads (nbReads) and the estimated number of fragment in the library (dotted line). File saturation.jpg until 3 times the number of reads in the input file, file saturation_80.jpg until nUniqError reach 80% of the estimated number of fragment in the library.
+  
+
 
 ## PRE-REQUISITES
 
