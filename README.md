@@ -63,6 +63,11 @@ Several directory are created in the output directory :
      /usr/bin/perl , /usr/bin/env Rscript, and /bin/bash
 
 
+## More informations
+
+If you have questions about Saturn, you may ask them to sengelen [at] genoscope [.] cns [.] fr and jmaury [at] genoscope [.] cns [.] fr . You may also create an issue to ask questions on github website: https://github.com/institut-de-genomique/saturn/issues. 
+
+
 # ACKNOWLEDGMENTS
 
 Stefan Engelen, Cyril Firmo, Amin Madoui and Jean-Marc Aury - Saturn's authors
