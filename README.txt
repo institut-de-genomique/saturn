@@ -1,12 +1,28 @@
-This README describes a saturn running example
+# Saturn
 
-Please check the INSTALL.txt file for more information before the first running of saturn.
-#################################################
-saturn v1.0:
-#################################################
+Saturn is a tool for assessing the library saturation without alignment.
+It allows a sequencing platform to assess the saturation,
+to predict the yield of distinct reads from deeper sequencing and to adjust
+the sequencing effort even without any reference genome.
+Saturn uses an estimation of reads duplication and an equation model estimating
+potential errors along with standard saturation.
+As sequencing errors introduce new distinct reads and leads to overestimate
+the complexity of a readset, we modelize them to predict the correct amount
+of new sequences obtained by additionnal sequencing from a library.
 
-Program: saturn
-Saturn (v1.0): a fast software to predict the coverage from deeper sequencing
+Saturn is distributed open-source under CeCILL 
+FREE SOFTWARE LICENSE. Check out http://www.cecill.info/
+for more information about the contents of this license.
+
+Saturn home on the web is http://www.genoscope.cns.fr/saturn
+
+
+# Running saturn
+
+        Usage : saturn --fq1 <fastq file 1> --fq2 <fastq file 2> --o <output directory> {Options}
+
+# Option
+
         --fq1        : illumina reads (R1) in fastQ format
         --fq2        : illumina reads (R2) in fastQ format (Optional)
         --nparts     : number of parts to split file
@@ -15,15 +31,42 @@ Saturn (v1.0): a fast software to predict the coverage from deeper sequencing
         --h           : help message
 
 
-Command example to launch:
-$ `pwd`/bin/saturn --fq1 AWK_DOSF_1_1_A5KR6.IND3_clean.10prc.fastq --fq2 AWK_DOSF_1_2_A5KR6.IND3_clean.10prc.fastq --nparts 10 --o saturn_example/
+# PRE-REQUISITES
 
-[ven mai 29 14:37:48 CEST 2015] Create output directory : saturn_example/
-[ven mai 29 14:37:48 CEST 2015] Parallelization of jobs.
-[ven mai 29 14:37:48 CEST 2015] Extracting results.
-[ven mai 29 14:37:48 CEST 2015] Estimation of saturation.
-[ven mai 29 14:37:48 CEST 2015] Ended...
+  - A Linux based operating system.
+  - Binaries are provided for the following platform : Linux x86_64
+  - Perl 5.8.0 or higher installed.
+  - Perl Compress' Zlib module (http://search.cpan.org/~pmqs/IO-Compress-2.068/lib/Compress/Zlib.pm)
+  - Perl GetOpt module (http://search.cpan.org/dist/Getopt-Long/)
+  - R version 2.4.1 or higher installed.
+  - g++ with gcc 4.1.2 or higher
+  - parallel installed (working with ver. 20130922-1)
 
 
-'saturn_example/data/duplicates_data.csv' is a table containing the values obtained via fastx_estimate_duplicatedReads and used in input for neoreg which create a estimation of the saturation.
-'saturn_example/output/' is the output/results of saturn (via neoreg)
+# INSTALLATION
+
+  1. Download the current tarball archive from http://www.genoscope.cns.fr/saturn/download
+     $$ wget http://www.genoscope.cns.fr/saturn/download/saturn_latest.tar.gz
+  2. Untar/unzip the archive
+     $$ tar -zxvf saturn_latest.tar.gz
+     $$ cd saturn
+  3. compile sources
+     $$ make; make install;
+  4. Modify if needed the Perl , R and sh interpreters that have been set to 
+     /usr/bin/perl , /usr/bin/env Rscript, and /bin/bash
+
+# Result
+
+Several directory are created in the output directory : 
+        - files : contain sample files of increasing size generated from the input fastq files  
+        - data : contain the output files of fastx_estimate_duplicatedReads on each sample and a file 'duplicates_data.csv' which sumarize level of duplication. This last file is used in input for neoreg which create a estimation of the saturation
+        - output : contain results images and stats of saturn (via neoreg).
+
+
+# ACKNOWLEDGMENTS
+
+Jean-Marc Aury, Amin Madoui and Stefan Engelen - NaS's authors
+
+This work was financially supported by the Genoscope, 
+Institut de Genomique, CEA and Agence Nationale de la 
+Recherche (ANR), and France Génomique (ANR-10-INBS-09-08).
