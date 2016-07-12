@@ -34,10 +34,9 @@ Saturn home on the web is http://www.genoscope.cns.fr/saturn
 # RESULT
 
 Several directory are created in the output directory : 
-
-        - files : contain sample files of increasing size generated from the input fastq files  
-        - data : contain the output files of fastx_estimate_duplicatedReads on each sample and a file 'duplicates_data.csv' which sumarize level of duplication. This last file is used in input for neoreg which create a estimation of the saturation
-        - output : contain results images and stats of saturn (via neoreg).
+  - files : contain sample files of increasing size generated from the input fastq files  
+  - data : contain the output files of fastx_estimate_duplicatedReads on each sample and a file 'duplicates_data.csv' which sumarize level of duplication. This last file is used in input for neoreg which create a estimation of the saturation
+  - output : contain results images and stats of saturn (via neoreg).
 
 
 # PRE-REQUISITES
