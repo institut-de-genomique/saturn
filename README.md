@@ -1,4 +1,4 @@
-# Saturn
+# SATURN
 
 Saturn is a tool for assessing the library saturation without alignment.
 It allows a sequencing platform to assess the saturation,
@@ -17,11 +17,11 @@ for more information about the contents of this license.
 Saturn home on the web is http://www.genoscope.cns.fr/saturn
 
 
-# Running saturn
+# RUNNING SATURN
 
         Usage : saturn --fq1 <fastq file 1> --fq2 <fastq file 2> --o <output directory> {Options}
 
-# Option
+# OPTION
 
         --fq1        : illumina reads (R1) in fastQ format
         --fq2        : illumina reads (R2) in fastQ format (Optional)
@@ -29,6 +29,14 @@ Saturn home on the web is http://www.genoscope.cns.fr/saturn
         --o        : Output directory, default is Saturn_date_pid
         --nb_proc    : Number of parallel task, default is 16
         --h           : help message
+
+
+# RESULT
+
+Several directory are created in the output directory : 
+        - files : contain sample files of increasing size generated from the input fastq files  
+        - data : contain the output files of fastx_estimate_duplicatedReads on each sample and a file 'duplicates_data.csv' which sumarize level of duplication. This last file is used in input for neoreg which create a estimation of the saturation
+        - output : contain results images and stats of saturn (via neoreg).
 
 
 # PRE-REQUISITES
@@ -54,13 +62,6 @@ Saturn home on the web is http://www.genoscope.cns.fr/saturn
      $$ make; make install;
   4. Modify if needed the Perl , R and sh interpreters that have been set to 
      /usr/bin/perl , /usr/bin/env Rscript, and /bin/bash
-
-# Result
-
-Several directory are created in the output directory : 
-        - files : contain sample files of increasing size generated from the input fastq files  
-        - data : contain the output files of fastx_estimate_duplicatedReads on each sample and a file 'duplicates_data.csv' which sumarize level of duplication. This last file is used in input for neoreg which create a estimation of the saturation
-        - output : contain results images and stats of saturn (via neoreg).
 
 
 # ACKNOWLEDGMENTS
