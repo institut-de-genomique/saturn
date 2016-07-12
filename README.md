@@ -53,8 +53,8 @@ Several directory are created in the output directory :
 
 # INSTALLATION
 
-  1. Download the current tarball archive from http://www.genoscope.cns.fr/saturn/download      
-  `wget http://www.genoscope.cns.fr/saturn/download/saturn_latest.tar.gz`
+  1. Download the current tarball archive from http://www.genoscope.cns.fr/externe/saturn/      
+  `wget http://www.genoscope.cns.fr/externe/saturn/saturn_latest.tar.gz`
   2. Untar/unzip the archive    
   `tar -zxvf saturn_latest.tar.gz`
   3. compile sources    
