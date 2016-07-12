@@ -54,12 +54,12 @@ Several directory are created in the output directory :
 # INSTALLATION
 
   1. Download the current tarball archive from http://www.genoscope.cns.fr/saturn/download
-     $$ wget http://www.genoscope.cns.fr/saturn/download/saturn_latest.tar.gz
+     `wget http://www.genoscope.cns.fr/saturn/download/saturn_latest.tar.gz`
   2. Untar/unzip the archive
-     $$ tar -zxvf saturn_latest.tar.gz
-     $$ cd saturn
+     `tar -zxvf saturn_latest.tar.gz`
+     `cd saturn`
   3. compile sources
-     $$ make; make install;
+     `make; make install`
   4. Modify if needed the Perl , R and sh interpreters that have been set to 
      /usr/bin/perl , /usr/bin/env Rscript, and /bin/bash
 
